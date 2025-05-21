@@ -9,8 +9,7 @@
 
 1.  **克隆或下载仓库:**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-directory>
+    git clone https://github.com/GDragon-creator/bug-free-memory.git
     ```
     或者直接下载 ZIP 文件并解压。
 
