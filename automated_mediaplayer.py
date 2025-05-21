@@ -12,6 +12,18 @@ import os
 from PIL import Image, ImageTk
 import locale
 import configparser
+import logging
+import sys
+
+# 配置全局日志
+logging.basicConfig(
+    filename='app.log',  # 日志文件路径
+    level=logging.DEBUG,  # 日志级别（DEBUG/INFO/WARNING/ERROR）
+    format='%(asctime)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    encoding='utf-8'
+)
+logger = logging.getLogger(__name__)
 
 # --- 加载语言文件 ---
 try:
@@ -19,9 +31,11 @@ try:
         translations = json.load(f)
 except FileNotFoundError:
     print("错误: 未找到 languages.json 文件。请确保文件存在于脚本同级目录下。")
+    logger.error("错误: 未找到 languages.json 文件。请确保文件存在于脚本同级目录下。")
     exit(1)
 except json.JSONDecodeError:
     print("错误: languages.json 文件格式不正确。请检查文件内容是否为有效的 JSON 格式。")
+    logger.error("错误: languages.json 文件格式不正确。请检查文件内容是否为有效的 JSON 格式。")
     exit(1)
 
 
@@ -76,9 +90,11 @@ def count_fingers(lst, handedness_label="Unknown"):  # 接收手的左右标签
         # 为简单起见，这里未知手型时不计数拇指，依赖上面四个手指的计数
 
     except IndexError:
+        logger.warning("手指关键点索引错误", exc_info=True)
         print("手指关键点索引错误。")  # Landmarks可能不完整
         return 0
     except Exception as e:
+        logger.error(f"手指计数错误: {str(e)}", exc_info=True)
         print(f"手指计数错误: {e}")
         return 0
     return cnt
@@ -179,8 +195,9 @@ def load_settings():
             print(translations[current_language]["import_success"].format("settings.json"))
         else:
             print("未找到 settings.json，使用默认设置")
+        logger.info("成功加载配置文件 settings.json")
     except Exception as e:
-        print(f"加载设置失败: {e}")
+        logger.error(f"加载配置失败: {str(e)}", exc_info=True)  # exc_info=True 记录完整堆栈
         finger_actions = {i: None for i in range(1, 6)}
 
 
@@ -247,10 +264,12 @@ def on_key_press(key_event):
                 messagebox.showwarning(translations[current_language]["invalid_key"],
                                        translations[current_language]["invalid_key_message"])
             print(f"检测到无效按键: {key_name}")
+            logger.error(f"检测到无效按键: {key_name}")
             return
         current_keys.add(key_name)
     except Exception as e:
         print(f"键处理错误: {e}")
+        logger.error(f"键处理错误: {e}")
 
 
 def on_key_release(key_event):
@@ -263,6 +282,7 @@ def on_key_release(key_event):
         return
     if not current_keys:
         print("未捕获到有效按键组合。")
+        logger.error("未捕获到有效按键组合。")
         return
     action_type = 'key' if len(current_keys) == 1 else 'combo'
     action = {'type': action_type, 'value': format_keys(current_keys)}
@@ -356,6 +376,7 @@ def stop_capture_mode():
             listener_mouse = None
     except Exception as e:
         print(f"停止监听器时出错: {e}")
+        logger.error(f"停止监听器时出错: {e}")
     if gui_root and gui_root.winfo_exists():
         if current_finger and current_finger in action_labels and action_labels[current_finger].winfo_exists():
             if finger_actions.get(current_finger) is None:
@@ -422,6 +443,7 @@ def export_settings():
         except Exception as e:
             messagebox.showerror(translations[current_language]["error_title"],
                                  translations[current_language]["export_failed"].format(e))
+            logger.error("error_title export_failed")
 
 
 # --- 加载配置 ---
@@ -489,6 +511,7 @@ def import_settings():
             finger_actions = original_finger_actions
             messagebox.showerror(translations[current_language]["error_title"],
                                  translations[current_language]["import_failed"].format(e))
+            logger.error("error_title import_failed")
 
 
 # --- 切换语言 ---
@@ -625,6 +648,7 @@ def show_contact_us():
                                                                                         "WeChat QR code image not found. Please place 'wechat_qr.png' in the 'images' folder."),
                                 foreground=error_color)
         error_label.pack(pady=10)
+        logger.error("image_not_found")
 
     # 添加关闭按钮
     close_button = ttk.Button(contact_window, text=translations[current_language]["close"],
@@ -812,14 +836,18 @@ def setup_gui():
 
 def on_gui_close():
     global config_done_and_start, gui_root
-    if messagebox.askokcancel(translations[current_language]["exit_confirm"],
+    try:
+        if messagebox.askokcancel(translations[current_language]["exit_confirm"],
                               translations[current_language]["exit_confirm_message"]):
-        save_settings()
-        config_done_and_start = False
-        if gui_root:
-            gui_root.quit()
-            gui_root.destroy()
-            gui_root = None
+            save_settings()
+            logger.info("用户主动关闭GUI界面")
+            config_done_and_start = False
+            if gui_root:
+                gui_root.quit()
+                gui_root.destroy()
+                gui_root = None
+    except Exception as e:
+        logger.error(f"关闭GUI时出错: {str(e)}", exc_info=True)
 
 
 def draw_chinese_text(img_cv, text, pos, font_size=30, color=(255, 0, 0)):
@@ -828,12 +856,15 @@ def draw_chinese_text(img_cv, text, pos, font_size=30, color=(255, 0, 0)):
     try:
         font = ImageFont.truetype("./fonts/simhei.ttf", font_size)
     except IOError:
+        logger.error("IO Exception")
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
             if text != translations[current_language]["font_fallback"]:
                 print(translations[current_language]["font_fallback"])
+                logger.error("font_fallback")
         except IOError:
             print(translations[current_language]["font_missing"])
+            logger.error("font_missing")
             cv2.putText(img_cv, translations[current_language]["font_error"], (pos[0], pos[1] + font_size // 2),
                         cv2.FONT_HERSHEY_SIMPLEX, font_size / 30, color, 2)
             return img_cv
@@ -842,194 +873,201 @@ def draw_chinese_text(img_cv, text, pos, font_size=30, color=(255, 0, 0)):
 
 
 if __name__ == "__main__":
-    setup_gui()
-    if not config_done_and_start:
-        print(translations[current_language]["config_canceled"])
-        exit()
+    try:
+        setup_gui()
+        if not config_done_and_start:
+            print(translations[current_language]["config_canceled"])
+            exit()
 
-    print(translations[current_language]["config_done"])
-    print("已配置的操作:", finger_actions)
+        print(translations[current_language]["config_done"])
+        print("已配置的操作:", finger_actions)
 
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print(translations[current_language]["camera_error"])
-        exit()
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print(translations[current_language]["camera_error"])
+            exit()
 
-    drawing = mp.solutions.drawing_utils
-    hands_module = mp.solutions.hands
-    hand_obj = hands_module.Hands(max_num_hands=2, min_detection_confidence=0.7,
-                                  min_tracking_confidence=0.6)  # 使用 hand_gesture_reader.py 的更高置信度
+        drawing = mp.solutions.drawing_utils
+        hands_module = mp.solutions.hands
+        hand_obj = hands_module.Hands(max_num_hands=2, min_detection_confidence=0.7,
+                                      min_tracking_confidence=0.6)  # 使用 hand_gesture_reader.py 的更高置信度
 
-    start_init = False
-    prev_cnt = -1
-    last_action_time = 0
-    action_hold_time = 0.25
-    min_action_interval = 0.4
-    action_gesture_start_time = 0
-    two_hands_detected_start_time = 0.0
-    exit_countdown_duration = 3.0
+        start_init = False
+        prev_cnt = -1
+        last_action_time = 0
+        action_hold_time = 0.25
+        min_action_interval = 0.4
+        action_gesture_start_time = 0
+        two_hands_detected_start_time = 0.0
+        exit_countdown_duration = 3.0
 
-    cv2.namedWindow("Gesture Control", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Gesture Control", cv2.WINDOW_NORMAL)
 
-    while True:
-        current_time = time.time()
-        ret, frm = cap.read()
-        if not ret:
-            print(translations[current_language]["frame_error"])
-            break
+        while True:
+            current_time = time.time()
+            ret, frm = cap.read()
+            if not ret:
+                print(translations[current_language]["frame_error"])
+                break
 
-        frm = cv2.flip(frm, 1)
-        rgb_frm = cv2.cvtColor(frm, cv2.COLOR_BGR2RGB)
-        res = hand_obj.process(rgb_frm)
+            frm = cv2.flip(frm, 1)
+            rgb_frm = cv2.cvtColor(frm, cv2.COLOR_BGR2RGB)
+            res = hand_obj.process(rgb_frm)
 
-        finger_count_display = translations[current_language]["fingers_na"]
-        hands_label_display = translations[current_language]["no_hands"]
-        exit_countdown_text = ""
-        current_handedness_label = "Unknown"  # 用于传递给 count_fingers
+            finger_count_display = translations[current_language]["fingers_na"]
+            hands_label_display = translations[current_language]["no_hands"]
+            exit_countdown_text = ""
+            current_handedness_label = "Unknown"  # 用于传递给 count_fingers
 
-        num_hands_detected = 0
-        if res.multi_hand_landmarks:
-            num_hands_detected = len(res.multi_hand_landmarks)
+            num_hands_detected = 0
+            if res.multi_hand_landmarks:
+                num_hands_detected = len(res.multi_hand_landmarks)
 
-            for i, hand_landmarks in enumerate(res.multi_hand_landmarks):
-                drawing.draw_landmarks(frm, hand_landmarks, hands_module.HAND_CONNECTIONS)
+                for i, hand_landmarks in enumerate(res.multi_hand_landmarks):
+                    drawing.draw_landmarks(frm, hand_landmarks, hands_module.HAND_CONNECTIONS)
 
-            if num_hands_detected == 2:
-                hands_label_display = translations[current_language]["both_hands"]
-                if two_hands_detected_start_time == 0.0:
-                    two_hands_detected_start_time = current_time
-                elapsed_two_hands_time = current_time - two_hands_detected_start_time
-                remaining_time_for_exit = exit_countdown_duration - elapsed_two_hands_time
-                if remaining_time_for_exit > 0:
-                    exit_countdown_text = translations[current_language]["exit_countdown"].format(
-                        remaining_time_for_exit)
-                else:
-                    exit_countdown_text = translations[current_language]["exiting"]
-                if elapsed_two_hands_time >= exit_countdown_duration:
-                    print("检测到双手持续3秒，程序退出。")
+                if num_hands_detected == 2:
+                    hands_label_display = translations[current_language]["both_hands"]
+                    if two_hands_detected_start_time == 0.0:
+                        two_hands_detected_start_time = current_time
+                    elapsed_two_hands_time = current_time - two_hands_detected_start_time
+                    remaining_time_for_exit = exit_countdown_duration - elapsed_two_hands_time
+                    if remaining_time_for_exit > 0:
+                        exit_countdown_text = translations[current_language]["exit_countdown"].format(
+                            remaining_time_for_exit)
+                    else:
+                        exit_countdown_text = translations[current_language]["exiting"]
+                    if elapsed_two_hands_time >= exit_countdown_duration:
+                        print("检测到双手持续3秒，程序退出。")
+                        break
+                    finger_count_display = translations[current_language]["fingers_na_both"]
+                    start_init = False
+                    prev_cnt = -1
+                    action_gesture_start_time = 0
+                elif num_hands_detected == 1:
+                    two_hands_detected_start_time = 0.0
+                    hand_keyPoints = res.multi_hand_landmarks[0]
+
+                    if res.multi_handedness and len(res.multi_handedness) > 0:
+                        handedness_info = res.multi_handedness[0].classification[0]
+                        current_handedness_label = handedness_info.label  # "Left" or "Right"
+                        if current_handedness_label == "Left":
+                            hands_label_display = translations[current_language]["left_hand"]
+                        elif current_handedness_label == "Right":
+                            hands_label_display = translations[current_language]["right_hand"]
+                        else:
+                            hands_label_display = current_handedness_label
+                    else:
+                        hands_label_display = translations[current_language]["unknown_hand"]
+
+                    cnt = count_fingers(hand_keyPoints, current_handedness_label)
+                    finger_count_display = translations[current_language]["fingers_count"].format(cnt)
+
+                    if prev_cnt != cnt:
+                        action_gesture_start_time = current_time
+                        prev_cnt = cnt
+                        start_init = True
+
+                    if start_init and (current_time - action_gesture_start_time) > action_hold_time:
+                        action_to_perform = finger_actions.get(cnt)
+                        if action_to_perform:
+                            if (current_time - last_action_time) > min_action_interval:
+                                print(translations[current_language]["execute_action"].format(cnt, hands_label_display,
+                                                                                              action_to_perform))
+                                logger.error("execute_action")
+                                try:
+                                    if action_to_perform['type'] == 'key':
+                                        pyautogui.press(action_to_perform['value'])
+                                    elif action_to_perform['type'] == 'combo':
+                                        keys_to_press = action_to_perform['value'].split('+')
+                                        for k_val in keys_to_press:
+                                            pyautogui.keyDown(k_val)
+                                        # time.sleep(0.05)  # 小延迟以确保组合键生效
+                                        for k_val in reversed(keys_to_press):
+                                            pyautogui.keyUp(k_val)
+                                    elif action_to_perform['type'] == 'mouse_scroll':
+                                        if action_to_perform['value'] == 'scroll_up':
+                                            pyautogui.scroll(120)  # 使用 hand_gesture_reader.py 的标准滚动单位
+                                        elif action_to_perform['value'] == 'scroll_down':
+                                            pyautogui.scroll(-120)
+                                    elif action_to_perform['type'] == 'mouse_click':
+                                        button_val = action_to_perform['button'].replace('Button.', '')
+                                        pyautogui.click(button=button_val)
+                                    last_action_time = current_time
+                                except Exception as e:
+                                    print(f"使用 pyautogui 执行操作时出错: {e}")
+                                    logger.error(f"使用 pyautogui 执行操作时出错: {e}")
+                        start_init = False
+            else:
+                two_hands_detected_start_time = 0.0
+                hands_label_display = translations[current_language]["no_hands"]
+                if prev_cnt != 0:
+                    prev_cnt = 0
+                    start_init = False
+                    action_gesture_start_time = 0
+                finger_count_display = translations[current_language]["fingers_count"].format(0)
+
+            frm = draw_chinese_text(frm, finger_count_display, pos=(10, 30), font_size=28, color=(255, 0, 0))
+            frm = draw_chinese_text(frm, hands_label_display, pos=(10, 70), font_size=28, color=(0, 255, 0))
+            if exit_countdown_text:
+                frm = draw_chinese_text(frm, exit_countdown_text, pos=(10, 110), font_size=28, color=(0, 0, 255))
+
+            try:
+                if cv2.getWindowProperty("Gesture Control", cv2.WND_PROP_VISIBLE) <= 0:
+                    print(translations[current_language]["window_closed"])
                     break
-                finger_count_display = translations[current_language]["fingers_na_both"]
+            except cv2.error:
+                print(translations[current_language]["window_destroyed"])
+                break
+
+            cv2.imshow("Gesture Control", frm)
+
+            key_input = cv2.waitKey(1) & 0xFF
+            if key_input == 27:
+                break
+            elif key_input == ord('r') or key_input == ord('R'):
+                print(translations[current_language]["reconfig"])
+                if cap.isOpened(): cap.release()
+                cv2.destroyAllWindows()
+
+                finger_actions = {i: None for i in range(1, 6)}
+                action_labels.clear()
+                set_buttons.clear()
+                gesture_labels.clear()  # 清空 gesture_labels
+                config_done_and_start = False
+                two_hands_detected_start_time = 0.0
+
+                if listener_keyboard or listener_mouse:
+                    stop_capture_mode()
+
+                setup_gui()
+
+                if not config_done_and_start:
+                    print(translations[current_language]["config_canceled"])
+                    exit()
+
+                print(translations[current_language]["reconfig_done"])
+                print("已配置的操作:", finger_actions)
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    print(translations[current_language]["camera_error"])
+                    exit()
+                hand_obj = hands_module.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.6)
+                cv2.namedWindow("Gesture Control", cv2.WINDOW_NORMAL)
+
                 start_init = False
                 prev_cnt = -1
+                last_action_time = 0
                 action_gesture_start_time = 0
-            elif num_hands_detected == 1:
-                two_hands_detected_start_time = 0.0
-                hand_keyPoints = res.multi_hand_landmarks[0]
 
-                if res.multi_handedness and len(res.multi_handedness) > 0:
-                    handedness_info = res.multi_handedness[0].classification[0]
-                    current_handedness_label = handedness_info.label  # "Left" or "Right"
-                    if current_handedness_label == "Left":
-                        hands_label_display = translations[current_language]["left_hand"]
-                    elif current_handedness_label == "Right":
-                        hands_label_display = translations[current_language]["right_hand"]
-                    else:
-                        hands_label_display = current_handedness_label
-                else:
-                    hands_label_display = translations[current_language]["unknown_hand"]
+        if cap.isOpened():
+            cap.release()
+        cv2.destroyAllWindows()
 
-                cnt = count_fingers(hand_keyPoints, current_handedness_label)
-                finger_count_display = translations[current_language]["fingers_count"].format(cnt)
-
-                if prev_cnt != cnt:
-                    action_gesture_start_time = current_time
-                    prev_cnt = cnt
-                    start_init = True
-
-                if start_init and (current_time - action_gesture_start_time) > action_hold_time:
-                    action_to_perform = finger_actions.get(cnt)
-                    if action_to_perform:
-                        if (current_time - last_action_time) > min_action_interval:
-                            print(translations[current_language]["execute_action"].format(cnt, hands_label_display,
-                                                                                          action_to_perform))
-                            try:
-                                if action_to_perform['type'] == 'key':
-                                    pyautogui.press(action_to_perform['value'])
-                                elif action_to_perform['type'] == 'combo':
-                                    keys_to_press = action_to_perform['value'].split('+')
-                                    for k_val in keys_to_press:
-                                        pyautogui.keyDown(k_val)
-                                    # time.sleep(0.05)  # 小延迟以确保组合键生效
-                                    for k_val in reversed(keys_to_press):
-                                        pyautogui.keyUp(k_val)
-                                elif action_to_perform['type'] == 'mouse_scroll':
-                                    if action_to_perform['value'] == 'scroll_up':
-                                        pyautogui.scroll(120)  # 使用 hand_gesture_reader.py 的标准滚动单位
-                                    elif action_to_perform['value'] == 'scroll_down':
-                                        pyautogui.scroll(-120)
-                                elif action_to_perform['type'] == 'mouse_click':
-                                    button_val = action_to_perform['button'].replace('Button.', '')
-                                    pyautogui.click(button=button_val)
-                                last_action_time = current_time
-                            except Exception as e:
-                                print(f"使用 pyautogui 执行操作时出错: {e}")
-                    start_init = False
-        else:
-            two_hands_detected_start_time = 0.0
-            hands_label_display = translations[current_language]["no_hands"]
-            if prev_cnt != 0:
-                prev_cnt = 0
-                start_init = False
-                action_gesture_start_time = 0
-            finger_count_display = translations[current_language]["fingers_count"].format(0)
-
-        frm = draw_chinese_text(frm, finger_count_display, pos=(10, 30), font_size=28, color=(255, 0, 0))
-        frm = draw_chinese_text(frm, hands_label_display, pos=(10, 70), font_size=28, color=(0, 255, 0))
-        if exit_countdown_text:
-            frm = draw_chinese_text(frm, exit_countdown_text, pos=(10, 110), font_size=28, color=(0, 0, 255))
-
-        try:
-            if cv2.getWindowProperty("Gesture Control", cv2.WND_PROP_VISIBLE) <= 0:
-                print(translations[current_language]["window_closed"])
-                break
-        except cv2.error:
-            print(translations[current_language]["window_destroyed"])
-            break
-
-        cv2.imshow("Gesture Control", frm)
-
-        key_input = cv2.waitKey(1) & 0xFF
-        if key_input == 27:
-            break
-        elif key_input == ord('r') or key_input == ord('R'):
-            print(translations[current_language]["reconfig"])
-            if cap.isOpened(): cap.release()
-            cv2.destroyAllWindows()
-
-            finger_actions = {i: None for i in range(1, 6)}
-            action_labels.clear()
-            set_buttons.clear()
-            gesture_labels.clear()  # 清空 gesture_labels
-            config_done_and_start = False
-            two_hands_detected_start_time = 0.0
-
-            if listener_keyboard or listener_mouse:
-                stop_capture_mode()
-
-            setup_gui()
-
-            if not config_done_and_start:
-                print(translations[current_language]["config_canceled"])
-                exit()
-
-            print(translations[current_language]["reconfig_done"])
-            print("已配置的操作:", finger_actions)
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                print(translations[current_language]["camera_error"])
-                exit()
-            hand_obj = hands_module.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.6)
-            cv2.namedWindow("Gesture Control", cv2.WINDOW_NORMAL)
-
-            start_init = False
-            prev_cnt = -1
-            last_action_time = 0
-            action_gesture_start_time = 0
-
-    if cap.isOpened():
-        cap.release()
-    cv2.destroyAllWindows()
-
-    if listener_keyboard or listener_mouse:
-        stop_capture_mode()
-    print(translations[current_language]["app_end"])
+        if listener_keyboard or listener_mouse:
+            stop_capture_mode()
+        print(translations[current_language]["app_end"])
+    except Exception as e:
+        logger.critical(f"全局未处理异常: {str(e)}", exc_info=True)
+        messagebox.showerror("系统错误", "程序发生严重错误，已记录日志到 app.log")
+        sys.exit(1)
