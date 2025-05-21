@@ -1,0 +1,22 @@
+{
+    "1": {
+        "type": "key",
+        "value": "w"
+    },
+    "2": {
+        "type": "key",
+        "value": "a"
+    },
+    "3": {
+        "type": "key",
+        "value": "s"
+    },
+    "4": {
+        "type": "key",
+        "value": "d"
+    },
+    "5": {
+        "type": "mouse_scroll",
+        "value": "scroll_up"
+    }
+}
