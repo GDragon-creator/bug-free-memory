@@ -15,7 +15,7 @@ import configparser
 import logging
 import sys
 
-# 配置全局日志
+#配置全局日志
 logging.basicConfig(
     filename='app.log',  # 日志文件路径
     level=logging.DEBUG,  # 日志级别（DEBUG/INFO/WARNING/ERROR）
